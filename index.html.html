@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Liquid–gas phase boundary (version 3)</title>
+<style>
+:root{--bg:#fff;--fg:#1a1a1a;--mut:#666;--grid:#e2e2e2;--grid2:#9a9a9a;--blue:#17607f;--navy:#0b2a6b;--acc:#d33;--panel:#f6f9fc;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#16181c;--fg:#eee;--mut:#aaa;--grid:#2a2e34;--grid2:#6a6f76;--blue:#2b8cb5;--navy:#7fa0ff;--acc:#ff6b6b;--panel:#1d2026}}
+:root[data-theme="dark"]{--bg:#16181c;--fg:#eee;--mut:#aaa;--grid:#2a2e34;--grid2:#6a6f76;--blue:#2b8cb5;--navy:#7fa0ff;--acc:#ff6b6b;--panel:#1d2026}
+html,body{margin:0;background:var(--bg);color:var(--fg);font:14px system-ui,-apple-system,"Segoe UI",sans-serif}
+body{padding:8px 12px;max-width:760px;margin:0 auto}
+h1{font-size:16px;margin:2px 0 8px;text-align:center}
+.main{display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
+.left{display:flex;flex-direction:column;gap:8px}
+canvas{width:300px;max-width:100%;height:auto;background:var(--panel);border-radius:8px;display:block}
+.ctl{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px 16px;margin:10px 0 6px;align-items:end}
+.ctl label{display:flex;justify-content:space-between;font-weight:600;margin-bottom:1px}
+.ctl input{width:100%;margin:2px 0}
+button{font:inherit;font-weight:600;padding:7px 10px;border-radius:8px;border:2px solid var(--blue);background:transparent;color:var(--fg);cursor:pointer}
+button[aria-pressed="true"]{background:var(--blue);color:#fff}
+.info{color:var(--mut);margin-top:6px;line-height:1.45;font-size:13px}
+.info b{color:var(--fg)}
+.ss{display:inline-flex;flex-direction:column;vertical-align:middle;font-size:.72em;line-height:1.05;margin-left:1px}
+.std{display:inline-block;width:.7em;height:.7em;border:1.3px solid currentColor;border-radius:50%;position:relative;box-sizing:border-box;align-self:flex-start;margin-left:.1em}
+.std::after{content:"";position:absolute;left:-.25em;right:-.25em;top:50%;border-top:1.3px solid currentColor}
+</style></head><body>
+<h1>Liquid–gas phase boundary (Clausius–Clapeyron)</h1>
+<div class="main">
+ <div class="left"><canvas id="phase" aria-label="Phase diagram"></canvas><canvas id="gibbs" aria-label="Gibbs energy levels"></canvas></div>
+ <canvas id="box" aria-label="Molecule box"></canvas>
+</div>
+<div class="ctl">
+<div><label><span>P<sub>X</sub></span> <span id="Pv"></span></label><input id="P" type="range" min="0.05" max="2.4" step="0.025" value="0.5"></div>
+<div><label>T <span id="Tv"></span></label><input id="T" type="range" min="270" max="305" step="0.5" value="285"></div>
+<div><label><span>ΔH<span class="ss"><i class="std"></i><span>vap</span></span></span> <span id="Hv"></span></label><input id="H" type="range" min="20" max="40" step="0.25" value="28"></div>
+<button id="btn" aria-pressed="false">Allow condensation / evaporation: OFF</button>
+<button id="fix" aria-pressed="false">Fix pressure: OFF</button>
+</div>
+<div class="info" id="info"></div>
+<script>
+const R=8.314,dS=100,NPB=40,r=7;
+const W=300,H1=280,H2=140,H3=H1+H2+8,cx=150,RC=125,RY=24,LU=0.8,yb=H3-10-RY;
+const $=id=>document.getElementById(id);
+const mk=(id,h)=>{const c=$(id);c.width=W*2;c.height=h*2;const x=c.getContext('2d');x.scale(2,2);return x};
+const c1=mk('phase',H1),c2=mk('box',H3),c3=mk('gibbs',H2);
+const sT=$('T'),sP=$('P'),sH=$('H'),btn=$('btn'),fixb=$('fix');
+let allow=false,fix=false,Pset=0.5,liquid=60,mols=[],acc=0,dGd=null,hd=null;
+const psat=(T,h)=>Math.exp(-h/(R*T)+dS/R);
+const gasH=T=>90+(T-270)*3, speed=T=>1.5+(T-270)*0.1;
+const curP=()=>(fix||(mols.length==0&&liquid>0))?Pset:mols.length/NPB;
+const surf=()=>yb-liquid*LU, topY=()=>surf()-hd;
+hd=gasH(+sT.value);
+function spawn(up){const s=speed(+sT.value),th=Math.random()*6.283,rho=Math.sqrt(Math.random())*(RC-r-6);
+ let dx,dy,dz,a=Math.random()*6.283;
+ if(up){dy=-(0.5+Math.random()*0.5)}else dy=Math.random()*2-1;
+ const q=Math.sqrt(1-dy*dy);dx=q*Math.cos(a);dz=q*Math.sin(a);
+ mols.push({x:rho*Math.cos(th),z:rho*Math.sin(th),y:up?surf()-r-2:topY()+12+Math.random()*Math.max(1,surf()-topY()-24),vx:dx*s,vy:dy*s,vz:dz*s})}
+function setN(n){while(mols.length<n)spawn();while(mols.length>n)mols.splice(Math.random()*mols.length|0,1)}
+const syncP=()=>{if(!fix&&mols.length)sP.value=mols.length/NPB};
+sP.oninput=()=>{Pset=+sP.value;const ps=psat(+sT.value,sH.value*1000);if(mols.length==0&&liquid>0&&Pset>ps)return;setN(Math.round(Pset*NPB))};
+btn.onclick=()=>{allow=!allow;btn.setAttribute('aria-pressed',allow);btn.textContent='Allow condensation / evaporation: '+(allow?'ON':'OFF')};
+fixb.onclick=()=>{fix=!fix;if(fix)Pset=mols.length/NPB;else syncP();fixb.setAttribute('aria-pressed',fix);fixb.textContent='Fix pressure: '+(fix?'ON':'OFF')};
+setN(Math.round(0.5*NPB));
+function step(){
+ const T=+sT.value,ps=Math.min(3,psat(T,sH.value*1000)),s=speed(T);
+ // box height: constant for given T unless pressure is fixed, when it follows N
+ if(!fix&&mols.length)Pset=mols.length/NPB;
+ let target=gasH(T);
+ if(fix)target=gasH(T)*mols.length/(NPB*Math.max(Pset,0.02));
+ hd+=(Math.max(15,Math.min(yb-liquid*LU-RY-4,target))-hd)*0.15;
+ const tp=topY(),sf=surf();let ch=false;
+ for(let i=mols.length-1;i>=0;i--){const m=mols[i],v=Math.hypot(m.vx,m.vy,m.vz)||1,k=1+(s/v-1)*0.08;
+  m.vx*=k;m.vy*=k;m.vz*=k;m.x+=m.vx;m.y+=m.vy;m.z+=m.vz;
+  const rho=Math.hypot(m.x,m.z),lim=RC-r;
+  if(rho>lim){const nx=m.x/rho,nz=m.z/rho,d=m.vx*nx+m.vz*nz;if(d>0){m.vx-=2*d*nx;m.vz-=2*d*nz}m.x=nx*lim;m.z=nz*lim}
+  if(m.y<tp+r){m.y=tp+r;m.vy=Math.abs(m.vy)}
+  if(m.y>sf-r){ if(allow&&curP()>ps){mols.splice(i,1);liquid++;ch=true;continue}
+   m.y=sf-r;m.vy=-Math.abs(m.vy)}}
+ const P=curP();
+ if(allow&&liquid>0&&P<ps){acc+=Math.min(0.4,0.25*(ps-P));
+  while(acc>=1&&liquid>0){acc-=1;liquid--;spawn(true);ch=true}}else acc=0;
+ if(ch)syncP();
+}
+const cs=()=>getComputedStyle(document.documentElement);
+function lab(c,t,sub,x,y,fs,col){c.fillStyle=col;c.font=fs+'px system-ui,sans-serif';c.fillText(t,x,y);const w=c.measureText(t).width;c.font=(fs*.65)+'px system-ui,sans-serif';c.fillText(sub,x+w,y+fs*.3)}
+function drawPhase(T,P,h,C){
+ const c=c1,ox=45,oy=240,pw=240,ph=222,tx=t=>ox+(t-270)/35*pw,py=p=>oy-p/2.4*ph;
+ c.clearRect(0,0,W,H1);c.lineWidth=.5;c.strokeStyle=C.grid;
+ for(let t=270;t<=305;t++){c.beginPath();c.moveTo(tx(t),oy-ph);c.lineTo(tx(t),oy);c.stroke()}
+ for(let i=0;i<=24;i++){c.beginPath();c.moveTo(ox,py(i/10));c.lineTo(ox+pw,py(i/10));c.stroke()}
+ c.lineWidth=1;c.strokeStyle=C.grid2;c.fillStyle=C.fg;c.font='11px system-ui';c.textAlign='center';
+ for(let t=270;t<=305;t+=5){c.beginPath();c.moveTo(tx(t),oy-ph);c.lineTo(tx(t),oy);c.stroke();c.fillText(t,tx(t),oy+14)}
+ c.textAlign='right';
+ for(let p=0;p<=2;p+=.5){c.beginPath();c.moveTo(ox,py(p));c.lineTo(ox+pw,py(p));c.stroke();c.fillText(p.toFixed(1),ox-5,py(p)+4)}
+ c.textAlign='center';c.font='12px system-ui';c.fillText('T / K',ox+pw/2,oy+30);
+ c.save();c.translate(12,oy-ph/2);c.rotate(-Math.PI/2);c.textAlign='left';lab(c,'P','X',-21,0,12,C.fg);c.font='12px system-ui';c.fillText(' / bar',-7,0);c.restore();
+ c.save();c.beginPath();c.rect(ox,oy-ph,pw,ph);c.clip();
+ c.strokeStyle=C.fg;c.lineWidth=2.5;c.beginPath();
+ for(let t=270;t<=305;t+=.5){const y=py(psat(t,h));t==270?c.moveTo(tx(t),y):c.lineTo(tx(t),y)}c.stroke();c.restore();
+ const pv=psat(T,h);
+ if(pv<=2.4){const y=py(pv);c.save();c.strokeStyle=C.acc;c.lineWidth=1.5;c.setLineDash([2,4]);c.lineCap='round';c.beginPath();c.moveTo(ox,y);c.lineTo(ox+pw,y);c.stroke();c.restore();
+  c.fillStyle=C.panel;c.fillRect(ox-31,y-8,28,16);c.textAlign='left';lab(c,'P','vap',ox-30,y+4,11,C.acc)}
+ c.fillStyle=C.fg;c.font='17px system-ui';c.textAlign='left';c.fillText('LIQUID',ox+8,oy-ph+30);c.textAlign='right';c.fillText('GAS',ox+pw-8,oy-22);
+ c.fillStyle=C.acc;c.strokeStyle=C.bg;c.lineWidth=2;c.beginPath();c.arc(tx(T),py(P),6,0,6.283);c.fill();c.stroke();
+}
+function sil(c,y1,y2){c.beginPath();c.moveTo(cx-RC,y1);c.lineTo(cx-RC,y2);c.ellipse(cx,y2,RC,RY,0,Math.PI,0,true);c.lineTo(cx+RC,y1);c.ellipse(cx,y1,RC,RY,0,0,-Math.PI,true);c.closePath()}
+function ell(c,y){c.beginPath();c.ellipse(cx,y,RC,RY,0,0,6.283)}
+function drawBox(C){
+ const c=c2,sf=surf(),tp=topY();c.clearRect(0,0,W,H3);
+ c.globalAlpha=.07;c.fillStyle=C.blue;sil(c,tp,yb);c.fill();
+ c.globalAlpha=.25;c.strokeStyle=C.navy;c.lineWidth=1.5;ell(c,yb);c.stroke();
+ if(liquid>0){c.globalAlpha=.55;c.fillStyle=C.blue;sil(c,sf,yb);c.fill();c.globalAlpha=.35;c.fillStyle='#fff';ell(c,sf);c.fill();c.globalAlpha=.6;c.strokeStyle=C.navy;c.lineWidth=1;c.stroke()}
+ c.globalAlpha=1;
+ const ms=mols.slice().sort((a,b)=>a.z-b.z),ky=RY/RC;
+ for(const m of ms){const f=(m.z+RC)/(2*RC),rr=r*(0.85+0.3*f),x=cx+m.x,y=m.y+m.z*ky;
+  c.globalAlpha=.7+.3*f;c.fillStyle=C.blue;c.strokeStyle=C.navy;c.lineWidth=1.5;c.beginPath();c.arc(x,y,rr,0,6.283);c.fill();c.stroke();
+  c.fillStyle='#fff';c.beginPath();c.arc(x+rr*.3,y-rr*.35,rr*.25,0,6.283);c.fill()}
+ c.globalAlpha=1;c.strokeStyle=C.navy;c.lineWidth=2.5;sil(c,tp,yb);c.stroke();ell(c,tp);c.stroke();
+ c.globalAlpha=.1;c.fillStyle='#fff';c.fillRect(cx-RC+10,tp,10,yb-tp);c.globalAlpha=1;
+}
+function drawG(dG,C){
+ const c=c3,yL=70,yG=yL-56*Math.tanh(dG/1000/5);c.clearRect(0,0,W,H2);
+ c.strokeStyle=C.fg;c.lineWidth=3;c.beginPath();c.moveTo(15,yL);c.lineTo(125,yL);c.moveTo(165,yG);c.lineTo(285,yG);c.stroke();
+ lab(c,'G','liquid',17,yL-8,17,C.fg);lab(c,'G','gas',167,yG>34?yG-8:yG+20,17,C.fg);
+ if(Math.abs(yG-yL)>3){const d=yG>yL?1:-1;c.strokeStyle=C.acc;c.fillStyle=C.acc;c.lineWidth=2;
+  c.beginPath();c.moveTo(145,yL);c.lineTo(145,yG-d*2);c.stroke();
+  c.beginPath();c.moveTo(145,yG);c.lineTo(139,yG-d*10);c.lineTo(151,yG-d*10);c.fill();
+  c.textAlign='right';lab(c,'ΔG','',136,(yL+yG)/2+6,16,C.acc);c.textAlign='left'}
+}
+function frame(){
+ step();const T=+sT.value,h=+sH.value,P=curP(),ps=psat(T,h*1000);
+ const dG0=h*1000-T*dS,dG=dG0+R*T*Math.log(Math.max(P,1e-3));
+ dGd=dGd===null?dG:dGd+(dG-dGd)*0.12;
+ const st=cs(),g=n=>st.getPropertyValue(n).trim(),C={fg:g('--fg'),grid:g('--grid'),grid2:g('--grid2'),blue:g('--blue'),navy:g('--navy'),acc:g('--acc'),bg:g('--bg'),panel:g('--panel')};
+ c1.textAlign='left';c3.textAlign='left';
+ drawPhase(T,P,h*1000,C);drawBox(C);drawG(dGd,C);
+ $('Pv').textContent=P.toFixed(2)+' bar';$('Tv').textContent=T.toFixed(1)+' K';$('Hv').textContent=h.toFixed(2)+' kJ/mol';
+ let s;if(Math.abs(dG)<60)s='On the phase boundary: liquid and gas are in equilibrium (ΔG ≈ 0).';
+ else if(dG>0)s='Above the boundary (P > vapour pressure): ΔG > 0, so the liquid is stable and gas tends to condense.';
+ else s='Below the boundary (P < vapour pressure): ΔG < 0, so the gas is stable and liquid tends to evaporate.';
+ if(!allow&&Math.abs(dG)>=60)s+=' Switch on the button to let it happen.';
+ else if(dG<0&&liquid==0&&allow)s+=' No liquid is left to evaporate.';
+ $('info').innerHTML=s+'<br>Vapour pressure: <b>'+(ps>99?'>99':ps.toFixed(ps<0.1?3:2))+' bar</b> · ΔG°<sub>vap</sub> = ΔH − TΔS° = <b>'+(dG0/1000).toFixed(2)+' kJ/mol</b> · ΔG = ΔG° + RT ln(P/bar) = <b>'+(dG/1000).toFixed(2)+' kJ/mol</b> · ΔS°<sub>vap</sub> = 100 J K⁻¹ mol⁻¹ · liquid units: <b>'+liquid+'</b>';
+ requestAnimationFrame(frame);
+}
+frame();
+</script></body></html>
